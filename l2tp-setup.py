@@ -103,7 +103,7 @@ def RequireSetupInfo():
         print 'choose a invalid ip'
         exit(-1)
 
-    setup_info.ipaddr = ip_addrs[selected_id]
+    setup_info.ip_addr = ip_addrs[selected_id]
 
     # Get net interface name for vpn
     interface_list = get_net_interface_list()
@@ -135,7 +135,7 @@ def RequireSetupInfo():
 
     # Set pre PSK
     vpn_psk_tmp = raw_input(
-        "Please input PSK(default is %s:" % setup_info.vpn_psk)
+        "Please input PSK(default is %s):" % setup_info.vpn_psk)
     if vpn_psk_tmp is not None and len(vpn_psk_tmp) > 0:
         setup_info.vpn_psk = vpn_psk_tmp
 
@@ -172,6 +172,8 @@ def SetupDependences():
 
     return True
 
+
+# For/etc/ipsec.conf
 ipsec_file_tpl = r'''# /etc/ipsec.conf - Libreswan IPsec configuration file
 # This file:  /etc/ipsec.conf
 #
@@ -226,6 +228,7 @@ conn L2TP-PSK-noNAT
     # include /etc/ipsec.d/*.conf
 '''
 
+# /etc/ipsec.secrets'
 psk_config_tpl = r'''#include /etc/ipsec.d/*.secrets
 %(server_ip)s %%any: PSK "%(psk)s"
 '''
@@ -263,6 +266,7 @@ pppoptfile = /etc/ppp/options.xl2tpd
 length bit = yes'''
 
 
+# /etc/ppp/options.xl2tpd'
 options_file_tpl = r'''#require-pap
 #require-chap
 #require-mschap
@@ -273,10 +277,10 @@ ms-dns 8.8.8.8
 ms-dns 8.8.4.4
 asyncmap 0
 auth
-crtscts
-lock
+#crtscts
+#lock
 hide-password
-modem
+#modem
 debug
 name l2tpd
 proxyarp
@@ -376,6 +380,8 @@ l2tpd_xml = r'''<?xml version="1.0" encoding="utf-8"?>
 
 
 def SetupFirewall(setup_info):
+    setup_params = setup_info.GetDict()
+
     WriteFileWithContext('/usr/lib/firewalld/services/l2tpd.xml', l2tpd_xml)
 
     commands = [
@@ -383,14 +389,14 @@ def SetupFirewall(setup_info):
         'firewall-cmd --permanent --add-service=ipsec',
         'firewall-cmd --permanent --add-masquerade',
         'firewall-cmd --reload',
-        # iptables --table nat --append POSTROUTING --jump MASQUERADE
-        # iptables -t nat -A POSTROUTING -s $iprange.0/24 -o $eth -j MASQUERADE
-        # iptables -t nat -A POSTROUTING -s $iprange.0/24 -j SNAT --to-source $serverip
-        # service iptables save
+        'iptables --table nat --append POSTROUTING --jump MASQUERADE',
+        'iptables -t nat -A POSTROUTING -s %(ip_range)s.0/24 -o %(interface_name)s -j MASQUERADE',
+        'iptables -t nat -A POSTROUTING -s %(ip_range)s.0/24 -j SNAT --to-source %(server_ip)s',
+        'service iptables save'
     ]
 
     for c in commands:
-        os.system(c)
+        os.system(c % setup_params)
 
 
 def SetupStartupWhenSytemStart():
