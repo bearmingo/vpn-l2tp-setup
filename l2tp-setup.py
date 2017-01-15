@@ -10,7 +10,7 @@ def check_os_version():
         #    CentOS Linux release 7.2.1511 (Core)
         with open('/etc/redhat-release', 'r') as f:
             data = f.read()
-            if data.find('CentOS') and data.find('release 7'):
+            if data.find('CentOS') != -1 and data.find('release 7') != -1:
                 return True
     except:
         return False
@@ -22,18 +22,23 @@ def get_ipaddr_list():
     f = os.popen("ifconfig -a | grep -w 'inet' | grep -v '128.0.01' | awk '{print $2;}'")
     addrs = f.readlines()
     f.close()
-    return addrs
+
+    temp = []
+    for i in addrs:
+        temp.append(i.strip(' \n'))
+    return temp
 
 
 def get_net_interface_list():
-    f = os.popen('$(ifconfig | grep ": flags" | cut -d ":" -f1)')
+    f = os.popen('ifconfig | grep ": flags" | cut -d ":" -f1')
     interface_list = f.readlines()
+    f.close()
 
     # Remove lo interface
     temp = []
     for i in interface_list:
-        if i != 'lo':
-            temp.append(i)
+        if i != 'ol':
+            temp.append(i.strip(' \n'))
 
     return temp
 
@@ -64,9 +69,9 @@ class SetupInfo(object):
     def PrintParameters(self):
         print "Setup parameter is: "
         print " server ip:\t%s" % self.ip_addr
-        print " Server Local ip:\t%s.1" % self.ip_range
-        print " Client Remote Ip Range:\t%s.10-%s.254" % (self.ip_range,
-                                                          self.ip_range)
+        print " Server Local ip:\t%s.1" % self.vpn_ip_range
+        print " Client Remote Ip Range:\t%s.10-%s.254" % (self.vpn_ip_range,
+                                                          self.vpn_ip_range)
         print ""
         print "psk: %s" % self.vpn_psk
         print "username: %s" % self.vpn_username
@@ -75,10 +80,10 @@ class SetupInfo(object):
         return {
             'server_ip': self.ip_addr,
             'interface_name': self.interface_name,
-            'ip_range': self.ip_range,
-            'psk': self.psk,
+            'ip_range': self.vpn_ip_range,
+            'psk': self.vpn_psk,
             'username': self.vpn_username,
-            'password': self.password
+            'password': self.vpn_password
         }
 
 
@@ -89,7 +94,7 @@ def RequireSetupInfo():
     # Get ipaddr from system
     ip_addrs = get_ipaddr_list()
     print 'System has following ipaddr: '
-    for i in xrange(2, len(ip_addrs)):
+    for i in xrange(0, len(ip_addrs)):
         print ' %s). %s' % (i, ip_addrs[i])
     selected_id = raw_input('select a ip addr for vpn (eg. 1): ')
 
@@ -118,6 +123,7 @@ def RequireSetupInfo():
 
     else:
         print "Can not find a valid net interface"
+	exit(-1)
 
     print 'Use %s as default interface you want to listen for serv?' % (
         setup_info.interface_name)
@@ -166,7 +172,7 @@ def SetupDependences():
 
     return True
 
-ipsec_file_tpl = '''# /etc/ipsec.conf - Libreswan IPsec configuration file
+ipsec_file_tpl = r'''# /etc/ipsec.conf - Libreswan IPsec configuration file
 # This file:  /etc/ipsec.conf
 #
 # Enable when using this configuration file with openswan instead of libreswan
@@ -177,8 +183,8 @@ ipsec_file_tpl = '''# /etc/ipsec.conf - Libreswan IPsec configuration file
 config setup
     # NAT-TRAVERSAL support, see README.NAT-Traversal
     nat_traversal=yes
-    # exclude networks used on server side by adding %v4:!a.b.c.0/24
-    virtual_private=%v4:10.0.0.0/8,%v4:192.168.0.0/16,%v4:172.16.0.0/12
+    # exclude networks used on server side by adding %%v4:!a.b.c.0/24
+    virtual_private=%%v4:10.0.0.0/8,%%v4:192.168.0.0/16,%%v4:172.16.0.0/12
     # OE is now off by default. Uncomment and change to on, to
     # enable.
     oe=off
@@ -187,10 +193,12 @@ config setup
     protostack=netkey
     force_keepalive=yes
     keep_alive=1800
-    conn L2TP-PSK-NAT
-    rightsubnet=vhost:%priv
+
+conn L2TP-PSK-NAT
+    rightsubnet=vhost:%%priv
     also=L2TP-PSK-noNAT
-    conn L2TP-PSK-noNAT
+
+conn L2TP-PSK-noNAT
     authby=secret
     pfs=no
     auto=add
@@ -199,11 +207,11 @@ config setup
     ikelifetime=8h
     keylife=1h
     type=transport
-    left={server_ip}
-    leftid={server_ip}
+    left=%(server_ip)s
+    leftid=%(server_ip)s
     leftprotoport=17/1701
-    right=%any
-    rightprotoport=17/%any
+    right=%%any
+    rightprotoport=17/%%any
     dpddelay=40
     dpdtimeout=130
     dpdaction=clear
@@ -218,11 +226,12 @@ config setup
     # include /etc/ipsec.d/*.conf
 '''
 
-psk_config_tpl = '''#include /etc/ipsec.d/*.secrets
-{server_ip} %any: PSK "{psk}"
+psk_config_tpl = r'''#include /etc/ipsec.d/*.secrets
+%(server_ip)s %%any: PSK "%(psk)s"
 '''
 
-xl2tpd_conf_tpl = ''';
+# For /etc/xl2tp/xl2tp.conf
+xl2tpd_conf_tpl = r''';
 ; This is a minimal sample xl2tpd configuration file for use
 ; with L2TP over IPsec.
 ;
@@ -239,12 +248,12 @@ xl2tpd_conf_tpl = ''';
 ; will be used by xl2tpd as its address on pppX interfaces.
 [global]
 ; ipsec saref = yes
-listen-addr = {server_ip}
+listen-addr = %(server_ip)s
 auth file = /etc/ppp/chap-secrets
 port = 1701
 [lns default]
-ip range = {ip_range}.10-{ip_range}.254
-local ip = {ip_range}.1
+ip range = %(ip_range)s.10-%(ip_range)s.254
+local ip = %(ip_range)s.1
 refuse chap = yes
 refuse pap = yes
 require authentication = yes
@@ -254,7 +263,7 @@ pppoptfile = /etc/ppp/options.xl2tpd
 length bit = yes'''
 
 
-options_file_tpl = '''#require-pap
+options_file_tpl = r'''#require-pap
 #require-chap
 #require-mschap
 ipcp-accept-local
@@ -287,9 +296,9 @@ connect-delay 5000
 '''
 
 # template for /etc/ppp/chap-secrets
-chap_secrets_tpl = '''# Secrets for authentication using CHAP
+chap_secrets_tpl = r'''# Secrets for authentication using CHAP
 # client     server     secret               IP addresses
-{username}          l2tpd     {password}               *
+%(username)s          l2tpd     %(password)s               *
 '''
 
 
@@ -326,10 +335,10 @@ def SetupConfig(setup_info):
 
 
 # file data template for /etc/sysctl.conf
-sysctl_conf_tpl = '''net.ipv4.ip_forward = 1
+sysctl_conf_tpl = r'''net.ipv4.ip_forward = 1
 net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
-net.ipv4.conf.{interface_name}.eth.rp_filter = 0
+net.ipv4.conf.%(interface_name)s.eth.rp_filter = 0
 net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
 net.ipv4.conf.all.accept_redirects = 0
@@ -342,7 +351,7 @@ def SetupNetFoward(setup_info):
     os.system('sysctl -w net.ipv4.ip_forward=1')
     os.system('sysctl -w net.ipv4.conf.all.rp_filter=0')
     os.system('sysctl -w net.ipv4.conf.default.rp_filter=0')
-    os.system('sysctl -w net.ipv4.conf.{interface_name}.rp_filter=0' %
+    os.system('sysctl -w net.ipv4.conf.%(interface_name)s.rp_filter=0' %
               setup_params)
     os.system('sysctl -w net.ipv4.conf.all.send_redirects=0')
     os.system('sysctl -w net.ipv4.conf.default.send_redirects=0')
@@ -355,7 +364,7 @@ def SetupNetFoward(setup_info):
 
 
 # template for /usr/lib/firewalld/services/l2tpd.xml
-l2tpd_xml = '''<?xml version="1.0" encoding="utf-8"?>
+l2tpd_xml = r'''<?xml version="1.0" encoding="utf-8"?>
 <service>
   <short>l2tpd</short>
   <description>L2TP IPSec</description>
@@ -410,10 +419,10 @@ def Main(args):
     SetupDependences()
     SetupConfig(setup_info)
     SetupNetFoward(setup_info)
-    SetupFirewall()
+    SetupFirewall(setup_info)
     SetupStartupWhenSytemStart()
     CheckSetupResult()
 
 
 if __name__ == '__main__':
-    Main(sys.args)
+    Main(sys.argv)
