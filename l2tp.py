@@ -153,10 +153,9 @@ def inquery_setup_info():
         setup_info.interface_name = interface_list[selected_id]
     elif len(interface_list) == 1:
         setup_info.interface_name = interface_list[0]
-
     else:
         print("Can not find a valid net interface")
-	exit(-1)
+        exit(-1)
 
     print('Use %s as default interface you want to listen for serv?' % (
         setup_info.interface_name))
@@ -505,7 +504,7 @@ def main(args):
         exit(-1)
 
     if not check_os_version():
-        print 'You current system is not CentOS 7'
+        print('You current system is not CentOS 7')
         exit(-1)
 
     setup_info = inquery_setup_info()
