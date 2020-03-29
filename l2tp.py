@@ -1,7 +1,12 @@
 #!/usr/bin/env python2.7
 
+from __future__ import print_function
+
 import os
 import sys
+import string
+import random
+import configparser
 
 
 def check_os_version():
@@ -43,7 +48,7 @@ def get_net_interface_list():
     return temp
 
 
-def BackupFileIfExist(filepath):
+def bakdup_file_ifexists(filepath):
     if os.path.exists(filepath):
         # If backup file is exist, remove it old backupfile
         backup_filepath = filepath + '.backup'
@@ -52,31 +57,59 @@ def BackupFileIfExist(filepath):
         os.rename(filepath, filepath + '.backup')
 
 
-def WriteFileWithContext(filepath, context):
-    BackupFileIfExist(filepath)
+def write_config_file(filepath, context):
+    bakdup_file_ifexists(filepath)
     with open(filepath, 'w') as f:
         f.write(context)
+
+
+def generate_password(len=16):
+    seq = string.ascii_letters + string.digits + string.punctuation
+    return ''.join([random.choice(seq) for _ in xrange(len)])
 
 
 class SetupInfo(object):
     ip_addr = ''
     interface_name = 'eth0'
     vpn_ip_range = '10.0.1'
-    vpn_psk = 'mingoo'
+    vpn_psk = None
     vpn_username = "mingoo"
-    vpn_password = "mingoo"
+    vpn_password = None
 
-    def PrintParameters(self):
-        print "Setup parameter is: "
-        print " server ip:\t%s" % self.ip_addr
-        print " Server Local ip:\t%s.1" % self.vpn_ip_range
-        print " Client Remote Ip Range:\t%s.10-%s.254" % (self.vpn_ip_range,
-                                                          self.vpn_ip_range)
-        print ""
-        print "psk: %s" % self.vpn_psk
-        print "username: %s" % self.vpn_username
+    def __init__(self, path=None):
+        if path is not None:
+            self.read_from(path)
 
-    def GetDict(self):
+    def read_from(self, path):
+        conf = configparser.ConfigParser()
+        conf.read(path)
+        self.ip_addr = conf.get('vpn', 'ipaddr')
+        self.vpn_ip_range = conf.get('vpn', 'ip-range')
+        self.interface_name = conf.get('vpn', 'interface')
+        self.vpn_ip_range = conf.get('vpn', 'psk')
+
+    def write_to(self, path):
+        conf = configparser.ConfigParser()
+        if os.path.exists(path):
+            conf.read(path)
+        conf.set('vpn', 'ipaddr', self.ip_addr)
+        conf.set('vpn', 'interface', self.interface_name)
+        conf.set('vpn', 'ip-range', self.vpn_ip_range)
+        conf.set('vpn', 'interface', self.vpn_ip_range)
+        conf.set('vpn', 'psk', self.vpn_psk)
+        conf.write(path)
+
+    def print_parameters(self):
+        print("Setup parameter is: ")
+        print(" server ip:\t%s" % self.ip_addr)
+        print(" Server Local ip:\t%s.1" % self.vpn_ip_range)
+        print(" Client Remote Ip Range:\t%s.10-%s.254" % (
+            self.vpn_ip_range, self.vpn_ip_range))
+        print("")
+        print("psk:      %s" % self.vpn_psk)
+        print("username: %s" % self.vpn_username)
+
+    def get_dict(self):
         return {
             'server_ip': self.ip_addr,
             'interface_name': self.interface_name,
@@ -87,20 +120,20 @@ class SetupInfo(object):
         }
 
 
-def RequireSetupInfo():
+def inquery_setup_info():
 
     setup_info = SetupInfo()
 
     # Get ipaddr from system
     ip_addrs = get_ipaddr_list()
-    print 'System has following ipaddr: '
+    print('System has following ipaddr: ')
     for i in xrange(0, len(ip_addrs)):
-        print ' %s). %s' % (i, ip_addrs[i])
+        print(' %s). %s' % (i, ip_addrs[i]))
     selected_id = raw_input('select a ip addr for vpn (eg. 1): ')
 
     selected_id = int(selected_id)
     if selected_id < 0 or selected_id >= len(ip_addrs):
-        print 'choose a invalid ip'
+        print('Choose a invalid ip')
         exit(-1)
 
     setup_info.ip_addr = ip_addrs[selected_id]
@@ -108,25 +141,25 @@ def RequireSetupInfo():
     # Get net interface name for vpn
     interface_list = get_net_interface_list()
     if len(interface_list) > 1:
-        print '=================================='
-        print 'Network Interface list:'
+        print('==================================')
+        print('Network Interface list:')
         for i in xrange(0, len(interface_list)):
-            print ' %s). %s' % (i, interface_list[i])
-        print 'Which network interface you want to listen for serv?'
+            print(' %s). %s' % (i, interface_list[i]))
+        print('Which network interface you want to listen for serv?')
         selected_id = int(raw_input('Please select one:'))
         if selected_id < 0 or selected_id >= len(interface_list):
-            print 'Chose a invalid networ interface'
+            print('Chose a invalid networ interface')
             exit(0)
         setup_info.interface_name = interface_list[selected_id]
     elif len(interface_list) == 1:
         setup_info.interface_name = interface_list[0]
 
     else:
-        print "Can not find a valid net interface"
+        print("Can not find a valid net interface")
 	exit(-1)
 
-    print 'Use %s as default interface you want to listen for serv?' % (
-        setup_info.interface_name)
+    print('Use %s as default interface you want to listen for serv?' % (
+        setup_info.interface_name))
 
     vpn_ip_range_tmp = raw_input(
         "Please input ip range(dfault is %s):" % setup_info.vpn_ip_range)
@@ -134,6 +167,7 @@ def RequireSetupInfo():
         setup_info.vpn_ip_range = "10.0.1"
 
     # Set pre PSK
+    setup_info.vpn_psk = generate_password(16)
     vpn_psk_tmp = raw_input(
         "Please input PSK(default is %s):" % setup_info.vpn_psk)
     if vpn_psk_tmp is not None and len(vpn_psk_tmp) > 0:
@@ -143,31 +177,28 @@ def RequireSetupInfo():
     vpn_username = raw_input(
         "Please input VPN username: ")
     if vpn_username is None or len(vpn_username) == 0:
-        print "vpn username is invalid"
+        print("vpn username is invalid")
         exit(0)
     setup_info.vpn_username = vpn_username
 
     vpn_password = raw_input(
         "Please input VPN password: ")
     if vpn_password is None or len(vpn_password) == 0:
-        print "VPN password is invalid"
-        exit(0)
-
-    vpn_password1 = raw_input(
-        "Please input VPN password again: ")
-    if vpn_password1 != vpn_password:
-        print "Input password is not same"
-        exit(-1)
+        vpn_password = generate_password(16)
+        print("generate password: ", vpn_password)
 
     setup_info.vpn_password = vpn_password
 
     return setup_info
 
 
-def SetupDependences():
+def setup_dependences():
+    if 0 != os.system('yum -y epel-release'):
+        exit(-1)
     if 0 != os.system('yum -y update'):
         exit(-1)
-    if 0 != os.system('yum install -y openswan ppp xl2tpd wget'):
+    # libreswan openswan
+    if 0 != os.system('yum install -y net-tools libreswan ppp xl2tpd wget'):
         exit(-1)
 
     return True
@@ -306,36 +337,89 @@ chap_secrets_tpl = r'''# Secrets for authentication using CHAP
 '''
 
 
-def SetupConfig(setup_info):
+def setup_config(setup_info):
     ''' Create config files '''
 
-    setup_params = setup_info.GetDict()
+    setup_params = setup_info.get_dict()
 
     # Create ipsec.conf file
-    WriteFileWithContext(
+    write_config_file(
         '/etc/ipsec.conf',
         ipsec_file_tpl % setup_params)
 
     # Create PSK in config file
-    WriteFileWithContext(
+    write_config_file(
         '/etc/ipsec.secrets',
         psk_config_tpl % setup_params)
 
     # Create xl2tpd.conf file
-    WriteFileWithContext(
+    write_config_file(
         '/etc/xl2tpd/xl2tpd.conf',
         xl2tpd_conf_tpl % setup_params)
 
     # Create options.xl2tpd
-    WriteFileWithContext(
+    write_config_file(
         '/etc/ppp/options.xl2tpd',
         options_file_tpl % setup_params)
 
     # Create /etc/ppp/chap-secrets
     # write username and password
-    WriteFileWithContext(
+    write_config_file(
         '/etc/ppp/chap-secrets',
         chap_secrets_tpl % setup_params)
+
+
+def parse_chap_secets():
+    users = []
+    with open('/etc/ppp/chap-secrets') as tempfile:
+        for line in tempfile.readlines():
+            if line.startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            users.append({
+                'client': parts[0],
+                'server': parts[1],
+                'secret': parts[2],
+                'addr': parts[3],
+            })
+    return users
+
+
+def write_chap_secrets(users):
+    header = '''# Secrets for authentication using CHAP
+# client     server     secret               IP addresses'''
+    content = [header]
+    for user in users:
+        line = '{client:20}{server:20s}{secret:20s}{addr:20s}'.format(**user)
+        content.append(line)
+
+    with open('/etc/ppp/chap-secrets', 'w') as tempfile:
+        tempfile.writelines(lines)
+
+
+def add_user(username, password):
+    users = parse_chap_secets()
+    users.append(dict(
+        client=username,
+        server='l2tpd',
+        secret=password,
+        addr='*'))
+    write_chap_secrets(users)
+
+
+def remove_user(username):
+    users = parse_chap_secets()
+    users = filter(lambda u: u['client'] != username, users)
+    write_chap_secrets(users)
+
+
+def list_users():
+    users = parse_chap_secets()
+    print('user                passowrd')
+    for user in users:
+        print('{client:20s}{secret:20s}'.format(**user))
 
 
 # file data template for /etc/sysctl.conf
@@ -350,8 +434,8 @@ net.ipv4.conf.default.accept_redirects = 0
 '''
 
 
-def SetupNetFoward(setup_info):
-    setup_params = setup_info.GetDict()
+def setup_net_foward(setup_info):
+    setup_params = setup_info.get_dict()
     os.system('sysctl -w net.ipv4.ip_forward=1')
     os.system('sysctl -w net.ipv4.conf.all.rp_filter=0')
     os.system('sysctl -w net.ipv4.conf.default.rp_filter=0')
@@ -362,7 +446,7 @@ def SetupNetFoward(setup_info):
     os.system('sysctl -w net.ipv4.conf.all.accept_redirects=0')
     os.system('sysctl -w net.ipv4.conf.default.accept_redirects=0')
 
-    WriteFileWithContext(
+    write_file_with_context(
         '/etc/sysctl.conf',
         sysctl_conf_tpl % setup_params)
 
@@ -379,10 +463,10 @@ l2tpd_xml = r'''<?xml version="1.0" encoding="utf-8"?>
 '''
 
 
-def SetupFirewall(setup_info):
-    setup_params = setup_info.GetDict()
+def setup_firewall_config(setup_info):
+    setup_params = setup_info.get_dict()
 
-    WriteFileWithContext('/usr/lib/firewalld/services/l2tpd.xml', l2tpd_xml)
+    write_file_with_context('/usr/lib/firewalld/services/l2tpd.xml', l2tpd_xml)
 
     commands = [
         'firewall-cmd --permanent --add-service=l2tpd',
@@ -399,36 +483,42 @@ def SetupFirewall(setup_info):
         os.system(c % setup_params)
 
 
-def SetupStartupWhenSytemStart():
+def setup_autostart():
     os.system('systemctl enable ipsec xl2tpd')
     os.system('systemctl restart ipsec xl2tpd')
 
 
-def CheckSetupResult():
+def check_setup_result():
     os.system('ipsec verify')
 
 
-def Main(args):
-    # Require root to run this script
+def is_root_user():
     if os.getuid() != 0:
-        print 'You must be root to run this script!'
+        print('You must be root to run this scrip!')
+        return False
+    return True
+
+
+def main(args):
+    # Require root to run this script
+    if not is_root_user():
         exit(-1)
 
     if not check_os_version():
         print 'You current system is not CentOS 7'
         exit(-1)
 
-    setup_info = RequireSetupInfo()
+    setup_info = inquery_setup_info()
 
     raw_input('Input any button to start setup')
 
-    SetupDependences()
-    SetupConfig(setup_info)
-    SetupNetFoward(setup_info)
-    SetupFirewall(setup_info)
-    SetupStartupWhenSytemStart()
-    CheckSetupResult()
+    setup_dependences()
+    setup_config(setup_info)
+    setup_net_foward(setup_info)
+    setup_firewall_config(setup_info)
+    setup_autostart()
+    check_setup_result()
 
 
 if __name__ == '__main__':
-    Main(sys.argv)
+    main(sys.argv)
