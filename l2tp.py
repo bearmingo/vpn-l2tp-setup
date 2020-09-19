@@ -6,7 +6,16 @@ import os
 import sys
 import string
 import random
-import configparser
+import six
+
+if six.PY2:
+    import ConfigParser as configparser
+else:
+    import configparser
+
+
+if sys.version[0] == 3:
+    raw_input = input
 
 
 def check_os_version():
@@ -63,9 +72,9 @@ def write_config_file(filepath, context):
         f.write(context)
 
 
-def generate_password(len=16):
+def generate_password(length=16):
     seq = string.ascii_letters + string.digits + string.punctuation
-    return ''.join([random.choice(seq) for _ in xrange(len)])
+    return ''.join([random.choice(seq) for _ in range(length)])
 
 
 class SetupInfo(object):
@@ -127,7 +136,7 @@ def inquery_setup_info():
     # Get ipaddr from system
     ip_addrs = get_ipaddr_list()
     print('System has following ipaddr: ')
-    for i in xrange(0, len(ip_addrs)):
+    for i in range(0, len(ip_addrs)):
         print(' %s). %s' % (i, ip_addrs[i]))
     selected_id = raw_input('select a ip addr for vpn (eg. 1): ')
 
@@ -143,7 +152,7 @@ def inquery_setup_info():
     if len(interface_list) > 1:
         print('==================================')
         print('Network Interface list:')
-        for i in xrange(0, len(interface_list)):
+        for i in range(0, len(interface_list)):
             print(' %s). %s' % (i, interface_list[i]))
         print('Which network interface you want to listen for serv?')
         selected_id = int(raw_input('Please select one:'))
@@ -192,10 +201,9 @@ def inquery_setup_info():
 
 
 def setup_dependences():
-    if 0 != os.system('yum -y epel-release'):
+    if 0 != os.system('yum install -y epel-release'):
         exit(-1)
-    if 0 != os.system('yum -y update'):
-        exit(-1)
+    os.system('yum update -y')
     # libreswan openswan
     if 0 != os.system('yum install -y net-tools libreswan ppp xl2tpd wget'):
         exit(-1)
@@ -395,7 +403,7 @@ def write_chap_secrets(users):
         content.append(line)
 
     with open('/etc/ppp/chap-secrets', 'w') as tempfile:
-        tempfile.writelines(lines)
+        tempfile.writelines(content)
 
 
 def add_user(username, password):
@@ -445,10 +453,14 @@ def setup_net_foward(setup_info):
     os.system('sysctl -w net.ipv4.conf.all.accept_redirects=0')
     os.system('sysctl -w net.ipv4.conf.default.accept_redirects=0')
 
-    write_file_with_context(
+    write_config_file(
         '/etc/sysctl.conf',
         sysctl_conf_tpl % setup_params)
 
+
+def is_firewall_installed():
+    """check whether firewall is install in current system"""
+    return os.path.exists("/usr/lib/firewall")
 
 # template for /usr/lib/firewalld/services/l2tpd.xml
 l2tpd_xml = r'''<?xml version="1.0" encoding="utf-8"?>
@@ -463,9 +475,12 @@ l2tpd_xml = r'''<?xml version="1.0" encoding="utf-8"?>
 
 
 def setup_firewall_config(setup_info):
+    if not is_firewall_installed():
+        print("firewalld is not install in current system, skip to setup firewall config")
+
     setup_params = setup_info.get_dict()
 
-    write_file_with_context('/usr/lib/firewalld/services/l2tpd.xml', l2tpd_xml)
+    write_config_file('/usr/lib/firewalld/services/l2tpd.xml', l2tpd_xml)
 
     commands = [
         'firewall-cmd --permanent --add-service=l2tpd',
